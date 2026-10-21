@@ -180,12 +180,9 @@ export function buildExtensions(opts = {}) {
       FileHandler.configure({
         allowedMimeTypes: uploadMimeTypes,
         onDrop: (currentEditor, files, pos) => onUploadFiles(currentEditor, files, pos),
-        // Word, Excel and some browsers put a picture of the copied content
-        // next to its HTML. When the HTML has text it is the real paste:
-        // FileHandler returns false and ProseMirror pastes it as usual, so
-        // the picture is not uploaded.
+        // A paste that carries HTML is left to ImageOnlyPaste below.
         onPaste: (currentEditor, files, html) => {
-          if (!hasText(html)) onUploadFiles(currentEditor, files, null)
+          if (!html) onUploadFiles(currentEditor, files, null)
         },
       }),
     Video,
@@ -201,13 +198,16 @@ function hasText(html) {
   if (!html) return false
   const body = new DOMParser().parseFromString(html, "text/html").body
   body.querySelectorAll("style, script, xml").forEach((el) => el.remove())
-  return body.textContent.replace(/​/g, "").trim() !== ""
+  return body.textContent.replace(/\u200b/g, "").trim() !== ""
 }
 
-// "Copy image" puts the file and an `<img src=original>` on the clipboard.
-// FileHandler lets ProseMirror paste any non-empty HTML, which inserted the
-// original next to the upload. Ordered before FileHandler, this takes the
-// image-only case: upload the files, drop the HTML.
+// Pastes that carry files and HTML. Word, Excel and some browsers put a
+// picture of the copied content next to its HTML: when the HTML has visible
+// text it is the real paste, so this steps aside and ProseMirror pastes it
+// as usual. "Copy image" puts the file next to an `<img src=original>`:
+// here the files are uploaded and the HTML is dropped. FileHandler leaves
+// HTML pastes alone and lets them through, so this decides either way,
+// whichever of the two plugins runs first.
 const ImageOnlyPaste = Extension.create({
   name: "imageOnlyPaste",
 

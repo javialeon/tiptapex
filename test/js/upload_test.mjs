@@ -88,15 +88,18 @@ t("a paste whose HTML has text keeps the HTML and skips the picture beside it", 
   }
 })
 
-t("a copied image is uploaded and its HTML copy left out", async () => {
-  const restore = stubFetch(() =>
-    json(200, { url: "/uploads/photo.png", content_type: "image/png", filename: "photo.png" })
-  )
+t("a copied image is uploaded once and its HTML copy left out", async () => {
+  let uploads = 0
+  const restore = stubFetch(() => {
+    uploads++
+    return json(200, { url: "/uploads/photo.png", content_type: "image/png", filename: "photo.png" })
+  })
   const e = editor()
   try {
     paste(e, { files: [png()], html: '<meta charset="utf-8"><img src="https://example.com/photo.png">' })
     await tick()
 
+    assert.equal(uploads, 1)
     assert.deepEqual(imageSources(e), ["/uploads/photo.png"])
   } finally {
     e.destroy()
