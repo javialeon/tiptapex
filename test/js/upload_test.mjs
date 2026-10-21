@@ -1,13 +1,13 @@
 // Upload wiring against a real editor under jsdom: what reaches the document
-// when files are pasted. `fetch` is stubbed per check; no request leaves the
-// process.
+// when files are pasted, and what the host hears about each upload. `fetch`
+// is stubbed per check; no request leaves the process.
 import assert from "node:assert/strict"
 
 import { dom } from "./dom.mjs"
 import { test } from "./harness.mjs"
 
 const { Editor } = await import("@tiptap/core")
-const { buildExtensions, uploadAndInsert } = await import("tiptapex")
+const { TiptapexHook, buildExtensions, uploadAndInsert, uploadFile } = await import("tiptapex")
 
 const UPLOAD = { url: "/uploads", scopeName: null, scopeValue: "", csrfToken: "t" }
 
@@ -142,6 +142,107 @@ t("inside a code block a paste with a picture beside it stays plain text", async
     assert.equal(code.textContent, "let x = 1")
   } finally {
     e.destroy()
+    restore()
+  }
+})
+
+// What a host hears about one upload: `onStart` before the request, `onError`
+// with the HTTP status and the endpoint's `{error}` code when there is one.
+async function failedUpload(respond, upload = UPLOAD) {
+  const heard = { started: [], errors: [] }
+  const restore = stubFetch(respond)
+  try {
+    const result = await uploadFile(png(), {
+      ...upload,
+      onStart: (file) => heard.started.push(file.name),
+      onError: (file, info) => heard.errors.push({ filename: file.name, ...info }),
+    }).catch((error) => ({ thrown: error }))
+    return { ...heard, result }
+  } finally {
+    restore()
+  }
+}
+
+t("a rejected upload reports its status and error code", async () => {
+  const { started, errors, result } = await failedUpload(() => json(422, { error: "too_large" }))
+
+  assert.deepEqual(started, ["photo.png"])
+  assert.deepEqual(errors, [{ filename: "photo.png", status: 422, error: "too_large" }])
+  assert.ok(result.thrown, "callers still see the failure")
+})
+
+t("an upload refused before the app (HTML body) reports the status alone", async () => {
+  const { errors } = await failedUpload(() => ({
+    ok: false,
+    status: 413,
+    json: async () => JSON.parse("<html>"),
+  }))
+
+  assert.deepEqual(errors, [{ filename: "photo.png", status: 413, error: null }])
+})
+
+t("a success answer that is not JSON is reported as a failure", async () => {
+  const { started, errors } = await failedUpload(() => ({
+    ok: true,
+    status: 200,
+    json: async () => JSON.parse("<html>"),
+  }))
+
+  assert.deepEqual(started, ["photo.png"])
+  assert.deepEqual(errors, [{ filename: "photo.png", status: 200, error: null }])
+})
+
+t("an upload that never reaches the server reports no status", async () => {
+  const { errors } = await failedUpload(() => Promise.reject(new TypeError("Failed to fetch")))
+
+  assert.deepEqual(errors, [{ filename: "photo.png", status: null, error: null }])
+})
+
+t("an upload blocked for want of a scope says so instead of failing silently", async () => {
+  const { started, errors, result } = await failedUpload(() => assert.fail("no request expected"), {
+    ...UPLOAD,
+    scopeName: "scope",
+    scopeValue: "",
+  })
+
+  assert.deepEqual(started, [])
+  assert.deepEqual(errors, [{ filename: "photo.png", status: null, error: "no_scope" }])
+  assert.equal(result, null)
+})
+
+t("the hook pushes the opt-in start and error events to the LiveView", async () => {
+  const el = dom.window.document.createElement("div")
+  el.id = "ed"
+  el.dataset.ttxUploadUrl = "/uploads"
+  el.dataset.ttxEventUploadStart = "upload_started"
+  el.dataset.ttxEventUploadError = "upload_failed"
+  el.innerHTML = '<div data-ttx-role="editor"></div>'
+  dom.window.document.body.appendChild(el)
+
+  const pushed = []
+  const hook = {
+    ...TiptapexHook,
+    el,
+    pushEventTo: (_target, event, payload) => pushed.push([event, payload]),
+    handleEvent: () => {},
+  }
+  const restore = stubFetch(() => json(422, { error: "too_large" }))
+  try {
+    hook.mounted()
+    // The request goes out before the first await, while this stub is in
+    // place: the harness runs async checks side by side.
+    paste(hook.editor, { files: [png()], html: "" })
+    await tick()
+
+    assert.deepEqual(
+      pushed.filter(([event]) => event.startsWith("upload_")),
+      [
+        ["upload_started", { filename: "photo.png" }],
+        ["upload_failed", { filename: "photo.png", status: 422, error: "too_large" }],
+      ]
+    )
+  } finally {
+    hook.destroyed?.()
     restore()
   }
 })

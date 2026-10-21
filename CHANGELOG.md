@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Upload start and error events.** `on_upload_start` and `on_upload_error`
+  on `<.tiptapex_editor>` push an event to the LiveView as each upload starts
+  (`filename`) and when one fails (`filename`, `status`, `error`), so the host
+  can show progress and a message instead of the failure ending in the
+  console. `status` is nil when the request got no answer; `error` is the
+  `error` field of a JSON error response (the upload controller's 422 code),
+  `"no_scope"` when the record has no scope yet (sent without a start event,
+  as no request is made), or nil. Both are off unless set. The page dialog's
+  logo upload keeps reporting its own failures and does not send them. `uploadFile` takes matching `onStart`/`onError`
+  callbacks for hosts that drive it directly.
+
 ### Fixed
 
 - **Pasting from Word, Excel or a browser no longer adds a picture of the

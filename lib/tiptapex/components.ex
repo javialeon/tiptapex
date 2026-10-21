@@ -124,6 +124,19 @@ defmodule Tiptapex.Components do
     default: nil,
     doc: "event pushed after a successful upload (default \"tiptapex_uploaded\")"
 
+  attr :on_upload_start, :string,
+    default: nil,
+    doc: "event pushed as each upload starts, with `%{\"filename\" => ...}` (off when nil)"
+
+  attr :on_upload_error, :string,
+    default: nil,
+    doc: """
+    event pushed when an upload fails, with `filename`, `status` (HTTP status,
+    nil when the request got no answer) and `error` (the `error` field of a
+    JSON error response, `"no_scope"` when there is no scope yet — sent with
+    no start event before it — or nil). Off when nil.
+    """
+
   attr :sync, :any,
     default: :push_event,
     doc: ":push_event or {:hidden_input, form_field}"
@@ -171,6 +184,8 @@ defmodule Tiptapex.Components do
       data-ttx-upload-scope={@upload_scope != :none && @upload_scope && to_string(@upload_scope)}
       data-ttx-event-change={@push_change_event}
       data-ttx-event-uploaded={@on_uploaded}
+      data-ttx-event-upload-start={@on_upload_start}
+      data-ttx-event-upload-error={@on_upload_error}
       data-ttx-input-id={@input_field && @input_field.id <> "_ttx"}
       data-ttx-collab-topic={@collab && @collab[:topic]}
       data-ttx-collab-socket-path={@collab && @collab[:socket_path]}

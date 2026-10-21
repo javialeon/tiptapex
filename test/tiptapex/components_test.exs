@@ -60,6 +60,16 @@ defmodule Tiptapex.ComponentsTest do
       assert attr!(html, "div#e", "data-ttx-upload-scope-name") == "article_id"
     end
 
+    test "upload start and error events are opt-in" do
+      assert attr!(editor(id: "e"), "div#e", "data-ttx-event-upload-start") == nil
+      assert attr!(editor(id: "e"), "div#e", "data-ttx-event-upload-error") == nil
+
+      html = editor(id: "e", on_upload_start: "upload_started", on_upload_error: "upload_failed")
+
+      assert attr!(html, "div#e", "data-ttx-event-upload-start") == "upload_started"
+      assert attr!(html, "div#e", "data-ttx-event-upload-error") == "upload_failed"
+    end
+
     test "nil upload_scope keeps the scope-name so the hook blocks uploads" do
       html = editor(id: "e", upload_url: "/up", upload_scope: nil)
 

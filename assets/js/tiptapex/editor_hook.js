@@ -249,9 +249,16 @@ const ImageOnlyPaste = Extension.create({
 //   request:  multipart "file" + optional "<scopeName>" field,
 //             header "x-csrf-token"
 //   response: {"url": ..., "content_type": ..., "filename": ...}
+//
+// `upload.onStart(file)` runs before the request and `upload.onError(file,
+// {status, error})` on any failure: `status` is null when the request never
+// got an answer, `error` is the `error` field of a JSON error response (the
+// upload controller's 422 code), or "no_scope" — which comes without a start,
+// as no request is made.
 export async function uploadFile(file, upload) {
   if (upload.scopeName != null && !upload.scopeValue) {
     console.warn("[Tiptapex] Cannot upload: no upload scope yet (save the record first).")
+    upload.onError?.(file, { status: null, error: "no_scope" })
     return null
   }
 
@@ -259,15 +266,33 @@ export async function uploadFile(file, upload) {
   form.append("file", file)
   if (upload.scopeName != null) form.append(upload.scopeName, upload.scopeValue)
 
-  const resp = await fetch(upload.url, {
-    method: "POST",
-    body: form,
-    headers: { "x-csrf-token": upload.csrfToken },
-    credentials: "same-origin",
-  })
-  if (!resp.ok) throw new Error("Upload failed: " + resp.status)
+  upload.onStart?.(file)
+  let resp
+  try {
+    resp = await fetch(upload.url, {
+      method: "POST",
+      body: form,
+      headers: { "x-csrf-token": upload.csrfToken },
+      credentials: "same-origin",
+    })
+  } catch (e) {
+    upload.onError?.(file, { status: null, error: null })
+    throw e
+  }
+  if (!resp.ok) {
+    // Only the endpoint answers in JSON; a proxy or body-size limit does not.
+    const body = await resp.json().catch(() => null)
+    upload.onError?.(file, { status: resp.status, error: body?.error ?? null })
+    throw new Error("Upload failed: " + resp.status)
+  }
 
-  const result = await resp.json()
+  let result
+  try {
+    result = await resp.json()
+  } catch (e) {
+    upload.onError?.(file, { status: resp.status, error: null })
+    throw e
+  }
   // Tell the LiveView (e.g. so an attachments sidebar can refresh).
   upload.onUploaded?.()
   return result
@@ -316,6 +341,8 @@ function readOpts(el) {
     uploadScopeValue: d.ttxUploadScope || "",
     changeEvent: "ttxEventChange" in d ? d.ttxEventChange : DEFAULTS.changeEvent,
     uploadedEvent: "ttxEventUploaded" in d ? d.ttxEventUploaded : DEFAULTS.uploadedEvent,
+    uploadStartEvent: d.ttxEventUploadStart || null,
+    uploadErrorEvent: d.ttxEventUploadError || null,
     setContentEvent: d.ttxSetContentEvent || (el.id ? `tiptapex:set-content:${el.id}` : null),
     setPageEvent: d.ttxSetPageEvent || (el.id ? `tiptapex:set-page:${el.id}` : null),
     // null   -> use whatever the document carries
@@ -388,6 +415,13 @@ export function makeEditorHook(staticOpts = {}) {
           onUploaded: () => {
             if (opts.uploadedEvent) this.pushEventTo(el, opts.uploadedEvent, {})
           },
+          onStart: (file) => {
+            if (opts.uploadStartEvent) this.pushEventTo(el, opts.uploadStartEvent, { filename: file.name })
+          },
+          onError: (file, { status, error }) => {
+            if (opts.uploadErrorEvent)
+              this.pushEventTo(el, opts.uploadErrorEvent, { filename: file.name, status, error })
+          },
         }
       }
       const onUploadFiles = upload
@@ -398,7 +432,8 @@ export function makeEditorHook(staticOpts = {}) {
       // the page dialog uses it for header/footer logos.
       const uploadImage = upload
         ? async (file) => {
-            const result = await uploadFile(file, upload)
+            // The dialog reports its own failures; the host's events would say it twice.
+            const result = await uploadFile(file, { ...upload, onStart: null, onError: null })
             if (result && result.content_type && !result.content_type.startsWith("image/")) {
               const error = new Error("Not an image: " + result.content_type)
               error.ttxNotAnImage = true
