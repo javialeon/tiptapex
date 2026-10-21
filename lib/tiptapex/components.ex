@@ -69,6 +69,14 @@ defmodule Tiptapex.Components do
 
   attr :upload_scope_name, :string, default: "scope", doc: "form field name for the scope"
 
+  attr :upload_max_bytes, :integer,
+    default: nil,
+    doc: """
+    largest file the editor will send, checked in the browser before the
+    request (reported through `on_upload_error` as `"too_large"`). Set it to
+    the upload controller's `max_bytes`; nil leaves the check to the server.
+    """
+
   attr :collab, :map,
     default: nil,
     doc: """
@@ -182,6 +190,7 @@ defmodule Tiptapex.Components do
       data-ttx-upload-url={@upload_url}
       data-ttx-upload-scope-name={@upload_scope != :none && @upload_scope_name}
       data-ttx-upload-scope={@upload_scope != :none && @upload_scope && to_string(@upload_scope)}
+      data-ttx-upload-max-bytes={@upload_max_bytes}
       data-ttx-event-change={@push_change_event}
       data-ttx-event-uploaded={@on_uploaded}
       data-ttx-event-upload-start={@on_upload_start}

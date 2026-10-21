@@ -253,12 +253,18 @@ const ImageOnlyPaste = Extension.create({
 // `upload.onStart(file)` runs before the request and `upload.onError(file,
 // {status, error})` on any failure: `status` is null when the request never
 // got an answer, `error` is the `error` field of a JSON error response (the
-// upload controller's 422 code), or "no_scope" — which comes without a start,
-// as no request is made.
+// upload controller's 422 code), "no_scope" or "too_large" — the last two
+// come without a start, as no request is made.
 export async function uploadFile(file, upload) {
   if (upload.scopeName != null && !upload.scopeValue) {
     console.warn("[Tiptapex] Cannot upload: no upload scope yet (save the record first).")
     upload.onError?.(file, { status: null, error: "no_scope" })
+    return null
+  }
+  // Checked here as well as on the server: a proxy that buffers the request
+  // body would otherwise hold the server's answer until the whole file is up.
+  if (upload.maxBytes && file.size > upload.maxBytes) {
+    upload.onError?.(file, { status: null, error: "too_large" })
     return null
   }
 
@@ -339,6 +345,7 @@ function readOpts(el) {
     uploadUrl: d.ttxUploadUrl || null,
     uploadScopeName: "ttxUploadScopeName" in d ? d.ttxUploadScopeName || DEFAULTS.uploadScopeName : null,
     uploadScopeValue: d.ttxUploadScope || "",
+    uploadMaxBytes: Number(d.ttxUploadMaxBytes) || null,
     changeEvent: "ttxEventChange" in d ? d.ttxEventChange : DEFAULTS.changeEvent,
     uploadedEvent: "ttxEventUploaded" in d ? d.ttxEventUploaded : DEFAULTS.uploadedEvent,
     uploadStartEvent: d.ttxEventUploadStart || null,
@@ -411,6 +418,7 @@ export function makeEditorHook(staticOpts = {}) {
           url: opts.uploadUrl,
           scopeName: opts.uploadScopeName,
           scopeValue: opts.uploadScopeValue,
+          maxBytes: opts.uploadMaxBytes,
           csrfToken: token,
           onUploaded: () => {
             if (opts.uploadedEvent) this.pushEventTo(el, opts.uploadedEvent, {})

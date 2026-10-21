@@ -213,6 +213,25 @@ t("an upload blocked for want of a scope says so instead of failing silently", a
   assert.equal(result, null)
 })
 
+t("a file over the size limit is refused before it is sent", async () => {
+  // Proxies that buffer the request body (Cloudflare does) hold the server's
+  // answer until the whole file has gone up; checking here answers at once.
+  const { started, errors, result } = await failedUpload(() => assert.fail("no request expected"), {
+    ...UPLOAD,
+    maxBytes: 2,
+  })
+
+  assert.deepEqual(started, [])
+  assert.deepEqual(errors, [{ filename: "photo.png", status: null, error: "too_large" }])
+  assert.equal(result, null)
+})
+
+t("a file of exactly the size limit is still sent", async () => {
+  const { started } = await failedUpload(() => json(422, { error: "x" }), { ...UPLOAD, maxBytes: 3 })
+
+  assert.deepEqual(started, ["photo.png"])
+})
+
 t("the hook pushes the opt-in start and error events to the LiveView", async () => {
   const el = dom.window.document.createElement("div")
   el.id = "ed"
@@ -243,6 +262,38 @@ t("the hook pushes the opt-in start and error events to the LiveView", async () 
         ["upload_started", { filename: "photo.png" }],
         ["upload_failed", { filename: "photo.png", status: 422, error: "too_large" }],
       ]
+    )
+  } finally {
+    hook.destroyed?.()
+    restore()
+  }
+})
+
+t("the hook reads the size limit from the element", async () => {
+  const el = dom.window.document.createElement("div")
+  el.id = "ed-limit"
+  el.dataset.ttxUploadUrl = "/uploads"
+  el.dataset.ttxUploadMaxBytes = "2"
+  el.dataset.ttxEventUploadError = "upload_failed"
+  el.innerHTML = '<div data-ttx-role="editor"></div>'
+  dom.window.document.body.appendChild(el)
+
+  const pushed = []
+  const hook = {
+    ...TiptapexHook,
+    el,
+    pushEventTo: (_target, event, payload) => pushed.push([event, payload]),
+    handleEvent: () => {},
+  }
+  const restore = stubFetch(() => assert.fail("no request expected"))
+  try {
+    hook.mounted()
+    paste(hook.editor, { files: [png()], html: "" })
+    await tick()
+
+    assert.deepEqual(
+      pushed.filter(([event]) => event.startsWith("upload_")),
+      [["upload_failed", { filename: "photo.png", status: null, error: "too_large" }]]
     )
   } finally {
     hook.destroyed?.()

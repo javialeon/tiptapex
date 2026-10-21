@@ -70,6 +70,14 @@ defmodule Tiptapex.ComponentsTest do
       assert attr!(html, "div#e", "data-ttx-event-upload-error") == "upload_failed"
     end
 
+    test "the client-side upload size limit is opt-in" do
+      assert attr!(editor(id: "e"), "div#e", "data-ttx-upload-max-bytes") == nil
+
+      html = editor(id: "e", upload_url: "/up", upload_max_bytes: 20_971_520)
+
+      assert attr!(html, "div#e", "data-ttx-upload-max-bytes") == "20971520"
+    end
+
     test "nil upload_scope keeps the scope-name so the hook blocks uploads" do
       html = editor(id: "e", upload_url: "/up", upload_scope: nil)
 

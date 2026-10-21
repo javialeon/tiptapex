@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as no request is made), or nil. Both are off unless set. The page dialog's
   logo upload keeps reporting its own failures and does not send them. `uploadFile` takes matching `onStart`/`onError`
   callbacks for hosts that drive it directly.
+- **Client-side upload size limit.** `upload_max_bytes` on
+  `<.tiptapex_editor>` refuses a larger file in the browser, before the
+  request, and reports it through `on_upload_error` as `"too_large"` (no
+  start event). Behind a proxy that buffers the request body, the server's
+  rejection only arrived once the whole file had been sent. Off unless set.
 
 ### Fixed
 
