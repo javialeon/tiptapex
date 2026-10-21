@@ -310,7 +310,7 @@ export async function uploadAndInsert(editor, files, pos, upload) {
   for (const file of files) {
     try {
       const result = await uploadFile(file, upload)
-      if (!result) return
+      if (!result) continue
 
       const { url, content_type, filename } = result
       const cmd = editor.chain().focus()

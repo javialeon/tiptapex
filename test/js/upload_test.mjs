@@ -269,6 +269,29 @@ t("the hook pushes the opt-in start and error events to the LiveView", async () 
   }
 })
 
+t("a file over the size limit does not stop the files after it", async () => {
+  const big = new File(["too large"], "big.png", { type: "image/png" })
+  const heard = { started: [], errors: [] }
+  const e = editor()
+  const restore = stubFetch(() => json(200, { url: "/u/photo.png", content_type: "image/png", filename: "photo.png" }))
+  try {
+    await uploadAndInsert(e, [big, png()], null, {
+      ...UPLOAD,
+      maxBytes: 3,
+      onStart: (file) => heard.started.push(file.name),
+      onError: (file, info) => heard.errors.push({ filename: file.name, ...info }),
+    })
+
+    assert.deepEqual(heard.errors[0], { filename: "big.png", status: null, error: "too_large" })
+    // Started is the point: the second request goes out after an await, when
+    // a check running alongside may have swapped the fetch stub.
+    assert.deepEqual(heard.started, ["photo.png"])
+  } finally {
+    restore()
+    e.destroy()
+  }
+})
+
 t("the hook reads the size limit from the element", async () => {
   const el = dom.window.document.createElement("div")
   el.id = "ed-limit"
