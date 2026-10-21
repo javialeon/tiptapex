@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Pasting from Word, Excel or a browser no longer adds a picture of the
+  paste.** These put a rendering of the copied content on the clipboard next
+  to its HTML, and the editor uploaded it as well as pasting the HTML. When
+  the HTML has visible text it is pasted alone, through ProseMirror's normal
+  paste; when it holds only an image ("Copy image") the file is uploaded and
+  the HTML's copy is left out.
+
 ## [0.1.2] - 2026-07-24
 
 ### Added

@@ -13,7 +13,8 @@
 // All configuration arrives via `data-ttx-*` attributes; see readOpts()
 // below for the full list. Hosts needing JS-level configuration (custom
 // extensions, extra toolbar buttons, collaboration) use `makeEditorHook`.
-import { Editor } from "@tiptap/core"
+import { Editor, Extension } from "@tiptap/core"
+import { Plugin, PluginKey } from "@tiptap/pm/state"
 import { StarterKit } from "@tiptap/starter-kit"
 import { BubbleMenu } from "@tiptap/extension-bubble-menu"
 import { CharacterCount } from "@tiptap/extension-character-count"
@@ -174,11 +175,18 @@ export function buildExtensions(opts = {}) {
         locale,
         onPages,
       }),
+    onUploadFiles && ImageOnlyPaste.configure({ allowedMimeTypes: uploadMimeTypes, onUploadFiles }),
     onUploadFiles &&
       FileHandler.configure({
         allowedMimeTypes: uploadMimeTypes,
         onDrop: (currentEditor, files, pos) => onUploadFiles(currentEditor, files, pos),
-        onPaste: (currentEditor, files) => onUploadFiles(currentEditor, files, null),
+        // Word, Excel and some browsers put a picture of the copied content
+        // next to its HTML. When the HTML has text it is the real paste:
+        // FileHandler returns false and ProseMirror pastes it as usual, so
+        // the picture is not uploaded.
+        onPaste: (currentEditor, files, html) => {
+          if (!hasText(html)) onUploadFiles(currentEditor, files, null)
+        },
       }),
     Video,
     ...collabExtensions,
@@ -186,6 +194,52 @@ export function buildExtensions(opts = {}) {
 
   return typeof extend === "function" ? extend(exts) : exts
 }
+
+// Visible text only: markup that lands in <body> without rendering (style,
+// script, Word's <xml>) and zero-width spaces do not count.
+function hasText(html) {
+  if (!html) return false
+  const body = new DOMParser().parseFromString(html, "text/html").body
+  body.querySelectorAll("style, script, xml").forEach((el) => el.remove())
+  return body.textContent.replace(/​/g, "").trim() !== ""
+}
+
+// "Copy image" puts the file and an `<img src=original>` on the clipboard.
+// FileHandler lets ProseMirror paste any non-empty HTML, which inserted the
+// original next to the upload. Ordered before FileHandler, this takes the
+// image-only case: upload the files, drop the HTML.
+const ImageOnlyPaste = Extension.create({
+  name: "imageOnlyPaste",
+
+  addOptions() {
+    return { allowedMimeTypes: null, onUploadFiles: null }
+  },
+
+  addProseMirrorPlugins() {
+    const { allowedMimeTypes, onUploadFiles } = this.options
+    const editor = this.editor
+
+    return [
+      new Plugin({
+        key: new PluginKey("imageOnlyPaste"),
+        props: {
+          handlePaste(_view, event) {
+            const html = event.clipboardData?.getData("text/html")
+            if (!html || hasText(html)) return false
+
+            const files = Array.from(event.clipboardData.files || []).filter(
+              (file) => !allowedMimeTypes || allowedMimeTypes.includes(file.type)
+            )
+            if (files.length === 0) return false
+
+            onUploadFiles(editor, files, null)
+            return true
+          },
+        },
+      }),
+    ]
+  },
+})
 
 // POSTs one file and returns the endpoint's `{url, content_type, filename}`,
 // or null when uploads are blocked because the scope isn't known yet. This is
